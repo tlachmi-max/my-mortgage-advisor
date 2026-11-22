@@ -25,6 +25,8 @@ h2{font-size:1.05rem;margin:0 0 10px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 label{display:block;font-size:.78rem;color:var(--mut)}
 input,select{width:100%;font:inherit;font-size:1rem;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:2px}
+input[readonly]{background:var(--inp)}
+.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
 input:focus,select:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
 .chk{display:flex;align-items:center;gap:6px;font-size:.9rem;color:var(--ink);padding-top:20px}
 .chk input{width:auto;margin:0}
@@ -67,14 +69,22 @@ th{color:var(--mut);font-weight:600}
 <section>
 <h2>הנחות ועלויות</h2>
 <div class="grid">
-<label>עמלת פירעון מוקדם / היוון (₪)<input id="fee1" type="number" inputmode="decimal" value="0"></label>
+<label>עמלות פירעון נוספות (₪)<input id="fee1" type="number" inputmode="decimal" value="0"></label>
 <label>עלויות נוספות: פתיחת תיק, שמאי, ביטוח (₪)<input id="fee2" type="number" inputmode="decimal" value="0"></label>
-<label>הנחת מדד שנתי להלוואות צמודות (%)<input id="cpi" type="number" inputmode="decimal" step="0.1" value="2.5"></label>
+<label>מדד עתידי שנתי (%)<input id="cpi" type="number" inputmode="decimal" step="0.1" value="2"></label>
+<label>מדד שנתי בפועל עד כה (%)<input id="cpiP" type="number" inputmode="decimal" step="0.1" value="2"></label>
 </div>
+<p class="note">ברירת המחדל למדד היא 2%, אמצע יעד האינפלציה של בנק ישראל. אפשר להזין כל ערך אחר.</p>
 <p class="note">את עמלת הפירעון המוקדם והיוון יש לקבל מהבנק. הריבית בפריים מחושבת כקבועה לפי הערך שהוזן.</p>
 </section>
 
 <section class="res" id="out"></section>
+
+<section id="histS" style="display:none">
+<h2>תמהיל קיים: תוספת לקרן עד כה</h2>
+<div id="hist"></div>
+<p class="note">מחושב לפי הסכום המקורי, הריבית והחודשים שחלפו, עם המדד בפועל שהוזן. ההצמדה שטרם שולמה נלקחת מהשדה "הצמדת קרן" ומתווספת ליתרה.</p>
+</section>
 
 <section>
 <h2>תשלומים לפי שנה</h2>
@@ -97,41 +107,100 @@ var money=function(x){return nf.format(Math.round(x))+' ₪'};
 
 function addLoan(k){S[k].push({bal:0,rate:4,n:240,linked:false,type:'sp'});draw(k);calc()}
 function rmLoan(k,i){S[k].splice(i,1);draw(k);calc()}
+var TR=[['','בחר'],['prime','פריים'],['fixnl','קבועה לא צמודה'],['fixl','קבועה צמודה'],['varnl','משתנה לא צמודה'],['varl','משתנה צמודה']];
+var PU=[['','בחר'],['דיור','דיור'],['כל מטרה','כל מטרה'],['שיפוצים','שיפוצים'],['שעבוד קיים לטובת נרכש','שעבוד קיים לטובת נרכש'],['גישור','גישור'],['נדוניה','נדוניה'],['מחזור לדיור','מחזור לדיור'],['מחזור כל מטרה','מחזור כל מטרה'],['עסקית','עסקית'],['לא זוהה','לא זוהה'],['קבוצות רכישה','קבוצות רכישה']];
+var AN=[['none','ללא'],['prime','פריים'],['bond','אג"ח ממשלתי'],['boi','ריבית בנק ישראל']];
+var FQ=[['','בחר'],['1','כל חודש'],['12','כל 12 חודשים'],['24','כל 24 חודשים'],['30','כל 30 חודשים'],['60','כל 60 חודשים'],['84','כל 84 חודשים'],['120','כל 120 חודשים']];
+var SC=[['sp','שפיצר'],['eq','קרן שווה']];
+var NUM={freq:1,bal:1,rate:1,n:1,orig:1,el:1,hz:1,sp:1,hv:1,gp:1,gm:1};
+function addM(n){var d=new Date();d.setMonth(d.getMonth()+Math.round(n||0));return d.toISOString().slice(0,10)}
+function mBetween(s){if(!s)return 0;return Math.max(0,Math.round((new Date(s)-new Date())/(30.4375*864e5)))}
+function fid(k,i,f){return 'f_'+k+i+'_'+f}
+function inp(k,i,f,lab,v,t,st){return '<label>'+lab+'<input id="'+fid(k,i,f)+'" type="'+(t||'number')+'"'+(t==='date'?'':' inputmode="decimal"')+(st?' step="'+st+'"':'')+' value="'+(v===undefined||v===null?'':v)+'" '+(t==='date'?'onchange':'oninput')+'="upd(\''+k+'\','+i+',\''+f+'\',this.value)"></label>'}
+function sel(k,i,f,lab,o,v){var h='<label>'+lab+'<select onchange="upd(\''+k+'\','+i+',\''+f+'\',this.value)">';o.forEach(function(x){h+='<option value="'+x[0]+'"'+((v||'')==x[0]?' selected':'')+'>'+x[1]+'</option>'});return h+'</select></label>'}
 function draw(k){
  var h='';
  S[k].forEach(function(l,i){
-  h+='<div class="loan"><div class="lh"><span>'+(k==='old'?'הלוואה ':'מסלול ')+(i+1)+'</span>'
-   +(S[k].length>1?'<button class="rm" onclick="rmLoan(\''+k+'\','+i+')">הסר</button>':'')+'</div>'
-   +'<div class="grid">'
-   +'<label>יתרה / סכום (₪)<input type="number" inputmode="decimal" value="'+l.bal+'" oninput="upd(\''+k+'\','+i+',\'bal\',this.value)"></label>'
-   +'<label>ריבית שנתית (%)<input type="number" inputmode="decimal" step="0.01" value="'+l.rate+'" oninput="upd(\''+k+'\','+i+',\'rate\',this.value)"></label>'
-   +'<label>חודשים שנותרו<input type="number" inputmode="numeric" value="'+l.n+'" oninput="upd(\''+k+'\','+i+',\'n\',this.value)"></label>'
-   +'<label>שיטת החזר<select onchange="upd(\''+k+'\','+i+',\'type\',this.value)">'
-   +'<option value="sp"'+(l.type==='sp'?' selected':'')+'>שפיצר</option>'
-   +'<option value="eq"'+(l.type==='eq'?' selected':'')+'>קרן שווה</option></select></label>'
-   +'<label class="chk"><input type="checkbox"'+(l.linked?' checked':'')+' onchange="upd(\''+k+'\','+i+',\'linked\',this.checked)">צמוד למדד</label>'
-   +'</div></div>';
+  var old=k==='old';
+  h+='<div class="loan"><div class="lh"><span>'+(old?'הלוואה ':'מסלול ')+(i+1)+'</span><span class="note" id="hd_'+k+i+'">תשלום: — • שת"פ: —</span>'
+   +(S[k].length>1?'<button class="rm" onclick="rmLoan(\''+k+'\','+i+')">הסר</button>':'')+'</div><div class="grid">';
+  if(old)h+=sel(k,i,'purpose','מטרת ההלוואה',PU,l.purpose);
+  h+=sel(k,i,'type','לוח סילוקין',SC,l.type)+sel(k,i,'track','מסלול',TR,l.track)+inp(k,i,'bal',old?'יתרת קרן (₪)':'סכום (₪)',l.bal);
+  if(old)h+=inp(k,i,'hz','הצמדת קרן (₪)',l.hz||'')+inp(k,i,'end','תאריך סיום',l.end||addM(l.n),'date');
+  h+=inp(k,i,'n','תקופה (חודשים)',l.n);
+  if(old)h+=sel(k,i,'anchor','עוגן',AN,l.anchor)+inp(k,i,'sp','תוספת (%)',l.sp||'',null,'0.01');
+  h+=inp(k,i,'rate','ריבית (%)',l.rate,null,'0.01');
+  if(old)h+=inp(k,i,'freq','תדירות עדכון (חודשים)',l.freq||'')+inp(k,i,'upd','תאריך עדכון',l.upd||'','date')+inp(k,i,'hv','הפרשי היוון (₪)',l.hv||'')+inp(k,i,'gp','גרייס חלקי (חודשים)',l.gp||'')+inp(k,i,'gm','גרייס מלא (חודשים)',l.gm||'')+inp(k,i,'orig','סכום מקורי (₪)',l.orig||'')+inp(k,i,'el','חודשים שחלפו',l.el||'');
+  h+='</div><div class="g3"><label>החזר חודשי<input id="o1_'+k+i+'" readonly></label><label>החזר לשקל<input id="o2_'+k+i+'" readonly></label><label>שת"פ<input id="o3_'+k+i+'" readonly></label></div></div>';
  });
  $(k).innerHTML=h;
 }
+function sync(k,i,f,v){var e=$(fid(k,i,f));if(e)e.value=v}
 function upd(k,i,f,v){
- S[k][i][f]=(f==='type'||f==='linked')?v:(parseFloat(v)||0);
+ var l=S[k][i];
+ if(f==='track'){l.track=v;l.linked=(v==='fixl'||v==='varl')}
+ else if(NUM[f])l[f]=parseFloat(v)||0;
+ else l[f]=v;
+ if(f==='n'){l.end=addM(l.n);sync(k,i,'end',l.end)}
+ if(f==='end'){l.n=mBetween(v);sync(k,i,'n',l.n)}
  calc();
 }
-
+function perLoan(cpi){
+ ['old','neu'].forEach(function(k){
+  S[k].forEach(function(l,i){
+   var p=sim(l,cpi),t=sum(p),ir=irr(p,l.bal+(l.hz||0)),f=p.length?money(p[0]):'—';
+   var a=$('o1_'+k+i),b=$('o2_'+k+i),c=$('o3_'+k+i),d=$('hd_'+k+i);
+   if(a)a.value=p.length?f:'';
+   if(b)b.value=(p.length&&(l.bal+(l.hz||0))>0)?(t/(l.bal+(l.hz||0))).toFixed(3):'';
+   if(c)c.value=ir===null?'':pct(ir);
+   if(d)d.textContent='תשלום: '+f+' • שת"פ: '+(ir===null?'—':pct(ir));
+  });
+ });
+}
 function sim(l,cpi){
- var bal=l.bal,n=Math.max(0,Math.round(l.n)),r=l.rate/1200;
+ var bal=(l.bal||0)+(l.hz||0),n=Math.max(0,Math.round(l.n)),r=l.rate/1200;
  var c=l.linked?Math.pow(1+cpi/100,1/12)-1:0;
+ var cap=Math.max(0,n-1),g1=Math.min(cap,Math.round(l.gm||0)),g2=Math.min(cap-g1,Math.round(l.gp||0));
  var pays=[];
  for(var m=0;m<n;m++){
-  var left=n-m;bal*=1+c;
+  bal*=1+c;
   var i=bal*r,p;
-  if(l.type==='eq'){p=bal/left+i}
-  else{p=r?bal*r/(1-Math.pow(1+r,-left)):bal/left}
-  bal-=p-i;pays.push(p);
+  if(m<g1){p=0;bal+=i}
+  else if(m<g1+g2){p=i}
+  else{
+   var left=n-m;
+   if(l.type==='eq'){p=bal/left+i}
+   else{p=r?bal*r/(1-Math.pow(1+r,-left)):bal/left}
+   bal-=p-i;
+  }
+  pays.push(p);
  }
  return pays;
 }
+function hist(l,cp){
+ var o=l.orig||0,el=Math.round(l.el||0);
+ if(o<=0||el<=0)return null;
+ var T=el+Math.round(l.n),r=l.rate/1200,c=l.linked?Math.pow(1+cp/100,1/12)-1:0;
+ var bal=o,int=0,lk=0,paid=0;
+ for(var m=0;m<el;m++){
+  var left=T-m,b0=bal;bal*=1+c;lk+=bal-b0;
+  var i=bal*r,p;
+  if(l.type==='eq'){p=bal/left+i}else{p=r?bal*r/(1-Math.pow(1+r,-left)):bal/left}
+  bal-=p-i;int+=i;paid+=p;
+ }
+ return {o:o,int:int,lk:lk,paid:paid,bal:bal,entered:l.bal+(l.hz||0)};
+}
+function irr(p,P){
+ if(!p.length||P<=0)return null;
+ var lo=-0.02,hi=0.2;
+ for(var k=0;k<80;k++){
+  var mid=(lo+hi)/2,v=-P;
+  for(var t=0;t<p.length;t++)v+=p[t]/Math.pow(1+mid,t+1);
+  if(v>0)lo=mid;else hi=mid;
+ }
+ return (Math.pow(1+(lo+hi)/2,12)-1)*100;
+}
+function pct(x){return x===null?'-':x.toFixed(2)+'%'}
 function agg(set,cpi){
  var tot=[];
  set.forEach(function(l){
@@ -142,7 +211,7 @@ function agg(set,cpi){
 function sum(a){return a.reduce(function(s,x){return s+(x||0)},0)}
 
 function save(){
- try{localStorage.setItem('mra1',JSON.stringify({S:S,f1:$('fee1').value,f2:$('fee2').value,c:$('cpi').value}))}catch(e){}
+ try{localStorage.setItem('mra1',JSON.stringify({S:S,f1:$('fee1').value,f2:$('fee2').value,c:$('cpi').value,cp:$('cpiP').value}))}catch(e){}
 }
 function resetAll(){
  if(!confirm('למחוק את כל הנתונים ולהתחיל מחדש?'))return;
@@ -151,9 +220,10 @@ function resetAll(){
 }
 function calc(){
  var cpi=parseFloat($('cpi').value)||0;
- var fees=(parseFloat($('fee1').value)||0)+(parseFloat($('fee2').value)||0);
+ var oldFees=sum(S.old.map(function(l){return (l.hv||0)}));
+ var fees=(parseFloat($('fee1').value)||0)+(parseFloat($('fee2').value)||0)+oldFees;
  var o=agg(S.old,cpi),w=agg(S.neu,cpi);
- var balO=sum(S.old.map(function(l){return l.bal})),balN=sum(S.neu.map(function(l){return l.bal}));
+ var balO=sum(S.old.map(function(l){return l.bal+(l.hz||0)})),balN=sum(S.neu.map(function(l){return l.bal+(l.hz||0)}));
  var gap=balN-balO;
  $('gap').textContent=Math.abs(gap)>1?('סכום ההצעה החדשה '+(gap>0?'גבוה':'נמוך')+' מיתרת ההלוואות הקיימות ב-'+money(Math.abs(gap))+'.'):'';
  var tO=sum(o),tW=sum(w),net=tO-(tW+fees);
@@ -171,10 +241,24 @@ function calc(){
   +kv('החזר חודשי קיים',money(mo))+kv('החזר חודשי חדש',money(mw))
   +kv('שינוי בהחזר החודשי',(mw-mo>0?'+':'-')+money(Math.abs(mw-mo)))
   +kv('סה"כ תשלומים קיים',money(tO))+kv('סה"כ תשלומים חדש',money(tW))
-  +kv('עלויות מחזור',money(fees))
+  +kv('עלויות מחזור',money(fees))+(oldFees>0?kv('מתוכן: עמלות מההלוואות הקיימות',money(oldFees)):'')
   +kv('עלות מימון קיימת (ריבית והצמדה)',money(tO-balO))+kv('עלות מימון חדשה',money(tW-balN))
+  +kv('שת"פ קיים (IRR שנתי)',pct(irr(o,balO)))
+  +kv('שת"פ חדש (IRR שנתי)',pct(irr(w,balN)))
+  +kv('שת"פ חדש כולל עלויות',pct(irr(w,balN-fees)))
   +kv('נקודת איזון',beTxt)+'</div>';
  $('out').innerHTML=h;
+ perLoan(cpi);
+ var cpP=parseFloat($('cpiP').value)||0;
+ var HS=S.old.map(function(l){return hist(l,cpP)}).filter(Boolean);
+ if(HS.length){
+  var sI=sum(HS.map(function(x){return x.int})),sL=sum(HS.map(function(x){return x.lk})),sP=sum(HS.map(function(x){return x.paid})),sO=sum(HS.map(function(x){return x.o})),sB=sum(HS.map(function(x){return x.bal})),sE=sum(HS.map(function(x){return x.entered}));
+  var hh=kv('סכום מקורי',money(sO))+kv('ריבית ששולמה עד כה',money(sI))+kv('הצמדה שנצברה עד כה',money(sL))+(sum(S.old.map(function(l){return l.hz||0}))>0?kv('הצמדה שטרם שולמה (לפי הדו"ח)',money(sum(S.old.map(function(l){return l.hz||0})))):'')
+   +kv('סה"כ תוספת לקרן עד כה',money(sI+sL))+kv('סה"כ ששולם עד כה',money(sP))
+   +kv('יתרה מחושבת',money(sB))+kv('יתרה שהוזנה',money(sE));
+  if(sE>0&&Math.abs(sB-sE)/sE>0.01)hh+='<p class="warn">היתרה המחושבת שונה מהיתרה שהוזנה ביותר מ-1%. כדאי לבדוק את הנתונים מול לוח הסילוקין.</p>';
+  $('hist').innerHTML=hh;$('histS').style.display='';
+ }else{$('histS').style.display='none'}
  var t='<tr><th>שנה</th><th>קיים</th><th>חדש</th><th>הפרש</th></tr>',ys=Math.ceil(len/12);
  for(var y=0;y<ys;y++){
   var a=sum(o.slice(y*12,y*12+12)),b=sum(w.slice(y*12,y*12+12));
@@ -184,8 +268,8 @@ function calc(){
  save();
 }
 function kv(a,b){return '<div class="kv"><span>'+a+'</span><b>'+b+'</b></div>'}
-['fee1','fee2','cpi'].forEach(function(i){$(i).addEventListener('input',calc)});
-try{var sv2=JSON.parse(localStorage.getItem('mra1'));if(sv2){$('fee1').value=sv2.f1;$('fee2').value=sv2.f2;$('cpi').value=sv2.c}}catch(e){}
+['fee1','fee2','cpi','cpiP'].forEach(function(i){$(i).addEventListener('input',calc)});
+try{var sv2=JSON.parse(localStorage.getItem('mra1'));if(sv2){$('fee1').value=sv2.f1;$('fee2').value=sv2.f2;$('cpi').value=sv2.c;if(sv2.cp!==undefined)$('cpiP').value=sv2.cp}}catch(e){}
 draw('old');draw('neu');calc();
 if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){})}
 </script>
