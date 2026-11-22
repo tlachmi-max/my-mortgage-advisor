@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>מחשבון מחזור משכנתא</title>
+<style>
+:root{--bg:#eef2f6;--card:#fff;--ink:#14213d;--mut:#5b6b82;--line:#d5dde8;--acc:#0f766e;--bad:#b42318;--warn:#b45309;--inp:#f6f8fb}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1626;--card:#16223a;--ink:#e8eef8;--mut:#9fb0c9;--line:#2a3a58;--acc:#2dd4bf;--bad:#f97066;--warn:#fbbf24;--inp:#0f1a30}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif;line-height:1.5;padding:max(14px,env(safe-area-inset-top)) 14px max(24px,env(safe-area-inset-bottom))}
+main{max-width:760px;margin:0 auto}
+h1{font-size:1.5rem;margin:6px 0 2px}
+.sub{color:var(--mut);margin:0 0 16px;font-size:.92rem}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+h2{font-size:1.05rem;margin:0 0 10px}
+.loan{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:10px;background:var(--inp)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+label{display:block;font-size:.78rem;color:var(--mut)}
+input,select{width:100%;font:inherit;font-size:1rem;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:2px}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.chk{display:flex;align-items:center;gap:6px;font-size:.9rem;color:var(--ink);padding-top:20px}
+.chk input{width:auto;margin:0}
+.lh{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-weight:600;font-size:.9rem}
+button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 12px}
+button.add{border-style:dashed;width:100%}
+button.rm{border:0;background:none;color:var(--bad);padding:2px 6px;font-size:.85rem}
+.res{border-inline-start:4px solid var(--acc);padding-inline-start:12px}
+.big{font-size:2.1rem;font-weight:800;line-height:1.1;color:var(--acc)}
+.big.neg{color:var(--bad)}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:.95rem}
+.kv:last-child{border-bottom:0}
+.kv b{font-variant-numeric:tabular-nums}
+.note{font-size:.82rem;color:var(--mut)}
+.warn{color:var(--warn);font-size:.85rem;margin:6px 0 0}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.85rem;font-variant-numeric:tabular-nums}
+th,td{padding:6px 8px;text-align:start;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mut);font-weight:600}
+</style>
+</head>
+<body>
+<main>
+<h1>מחשבון מחזור משכנתא</h1>
+<p class="sub">השוואה בין ההלוואות הקיימות להצעה החדשה, כולל איחוד הלוואות, עמלות ונקודת איזון.</p>
+
+<section>
+<h2>הלוואות קיימות</h2>
+<div id="old"></div>
+<button class="add" onclick="addLoan('old')">+ הוסף הלוואה קיימת</button>
+</section>
+
+<section>
+<h2>הצעה חדשה (מסלולים)</h2>
+<div id="neu"></div>
+<button class="add" onclick="addLoan('neu')">+ הוסף מסלול</button>
+<p class="warn" id="gap"></p>
+</section>
+
+<section>
+<h2>הנחות ועלויות</h2>
+<div class="grid">
+<label>עמלת פירעון מוקדם / היוון (₪)<input id="fee1" type="number" inputmode="decimal" value="0"></label>
+<label>עלויות נוספות: פתיחת תיק, שמאי, ביטוח (₪)<input id="fee2" type="number" inputmode="decimal" value="0"></label>
+<label>הנחת מדד שנתי להלוואות צמודות (%)<input id="cpi" type="number" inputmode="decimal" step="0.1" value="2.5"></label>
+</div>
+<p class="note">את עמלת הפירעון המוקדם והיוון יש לקבל מהבנק. הריבית בפריים מחושבת כקבועה לפי הערך שהוזן.</p>
+</section>
+
+<section class="res" id="out"></section>
+
+<section>
+<h2>תשלומים לפי שנה</h2>
+<div class="tw"><table id="yr"></table></div>
+</section>
+
+<p class="note">החישוב להמחשה בלבד ואינו מהווה הצעה או התחייבות. יש להצליב מול לוח הסילוקין של הבנק.</p>
+</main>
+
+<script>
+var S={
+ old:[{bal:400000,rate:4.5,n:240,linked:false,type:'sp'}],
+ neu:[{bal:400000,rate:3.9,n:240,linked:false,type:'sp'}]
+};
+var $=function(i){return document.getElementById(i)};
+var nf=new Intl.NumberFormat('he-IL',{maximumFractionDigits:0});
+var money=function(x){return nf.format(Math.round(x))+' ₪'};
+
+function addLoan(k){S[k].push({bal:0,rate:4,n:240,linked:false,type:'sp'});draw(k);calc()}
+function rmLoan(k,i){S[k].splice(i,1);draw(k);calc()}
+function draw(k){
+ var h='';
+ S[k].forEach(function(l,i){
+  h+='<div class="loan"><div class="lh"><span>'+(k==='old'?'הלוואה ':'מסלול ')+(i+1)+'</span>'
+   +(S[k].length>1?'<button class="rm" onclick="rmLoan(\''+k+'\','+i+')">הסר</button>':'')+'</div>'
+   +'<div class="grid">'
+   +'<label>יתרה / סכום (₪)<input type="number" inputmode="decimal" value="'+l.bal+'" oninput="upd(\''+k+'\','+i+',\'bal\',this.value)"></label>'
+   +'<label>ריבית שנתית (%)<input type="number" inputmode="decimal" step="0.01" value="'+l.rate+'" oninput="upd(\''+k+'\','+i+',\'rate\',this.value)"></label>'
+   +'<label>חודשים שנותרו<input type="number" inputmode="numeric" value="'+l.n+'" oninput="upd(\''+k+'\','+i+',\'n\',this.value)"></label>'
+   +'<label>שיטת החזר<select onchange="upd(\''+k+'\','+i+',\'type\',this.value)">'
+   +'<option value="sp"'+(l.type==='sp'?' selected':'')+'>שפיצר</option>'
+   +'<option value="eq"'+(l.type==='eq'?' selected':'')+'>קרן שווה</option></select></label>'
+   +'<label class="chk"><input type="checkbox"'+(l.linked?' checked':'')+' onchange="upd(\''+k+'\','+i+',\'linked\',this.checked)">צמוד למדד</label>'
+   +'</div></div>';
+ });
+ $(k).innerHTML=h;
+}
+function upd(k,i,f,v){
+ S[k][i][f]=(f==='type'||f==='linked')?v:(parseFloat(v)||0);
+ calc();
+}
+
+function sim(l,cpi){
+ var bal=l.bal,n=Math.max(0,Math.round(l.n)),r=l.rate/1200;
+ var c=l.linked?Math.pow(1+cpi/100,1/12)-1:0;
+ var pays=[];
+ for(var m=0;m<n;m++){
+  var left=n-m;bal*=1+c;
+  var i=bal*r,p;
+  if(l.type==='eq'){p=bal/left+i}
+  else{p=r?bal*r/(1-Math.pow(1+r,-left)):bal/left}
+  bal-=p-i;pays.push(p);
+ }
+ return pays;
+}
+function agg(set,cpi){
+ var tot=[];
+ set.forEach(function(l){
+  sim(l,cpi).forEach(function(p,m){tot[m]=(tot[m]||0)+p});
+ });
+ return tot;
+}
+function sum(a){return a.reduce(function(s,x){return s+(x||0)},0)}
+
+function calc(){
+ var cpi=parseFloat($('cpi').value)||0;
+ var fees=(parseFloat($('fee1').value)||0)+(parseFloat($('fee2').value)||0);
+ var o=agg(S.old,cpi),w=agg(S.neu,cpi);
+ var balO=sum(S.old.map(function(l){return l.bal})),balN=sum(S.neu.map(function(l){return l.bal}));
+ var gap=balN-balO;
+ $('gap').textContent=Math.abs(gap)>1?('סכום ההצעה החדשה '+(gap>0?'גבוה':'נמוך')+' מיתרת ההלוואות הקיימות ב-'+money(Math.abs(gap))+'.'):'';
+ var tO=sum(o),tW=sum(w),net=tO-(tW+fees);
+ var mo=o[0]||0,mw=w[0]||0;
+ var len=Math.max(o.length,w.length),cum=0,be=null;
+ for(var m=0;m<len;m++){
+  cum+=(o[m]||0)-(w[m]||0);
+  if(be===null&&cum>=fees&&fees>0)be=m+1;
+ }
+ if(fees<=0&&mo>mw)be=0;
+ var beTxt=be===null?'לא מתקבל איזון':(be===0?'מיידי':be+' חודשים ('+(be/12).toFixed(1)+' שנים)');
+ var h='<div class="note">חיסכון נטו לאחר עלויות</div>'
+  +'<div class="big'+(net<0?' neg':'')+'">'+(net<0?'-':'')+money(Math.abs(net))+'</div>'
+  +'<div style="margin-top:8px">'
+  +kv('החזר חודשי קיים',money(mo))+kv('החזר חודשי חדש',money(mw))
+  +kv('שינוי בהחזר החודשי',(mw-mo>0?'+':'-')+money(Math.abs(mw-mo)))
+  +kv('סה"כ תשלומים קיים',money(tO))+kv('סה"כ תשלומים חדש',money(tW))
+  +kv('עלויות מחזור',money(fees))
+  +kv('עלות מימון קיימת (ריבית והצמדה)',money(tO-balO))+kv('עלות מימון חדשה',money(tW-balN))
+  +kv('נקודת איזון',beTxt)+'</div>';
+ $('out').innerHTML=h;
+ var t='<tr><th>שנה</th><th>קיים</th><th>חדש</th><th>הפרש</th></tr>',ys=Math.ceil(len/12);
+ for(var y=0;y<ys;y++){
+  var a=sum(o.slice(y*12,y*12+12)),b=sum(w.slice(y*12,y*12+12));
+  t+='<tr><td>'+(y+1)+'</td><td>'+money(a)+'</td><td>'+money(b)+'</td><td>'+(a-b<0?'-':'')+money(Math.abs(a-b))+'</td></tr>';
+ }
+ $('yr').innerHTML=t;
+}
+function kv(a,b){return '<div class="kv"><span>'+a+'</span><b>'+b+'</b></div>'}
+['fee1','fee2','cpi'].forEach(function(i){$(i).addEventListener('input',calc)});
+draw('old');draw('neu');calc();
+</script>
+</body>
+</html>
